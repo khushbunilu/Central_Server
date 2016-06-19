@@ -4,6 +4,15 @@ package com.khushbu;
 
 import Jama.Matrix;
 import org.apache.commons.io.FileUtils;
+import org.apache.http.HttpResponse;
+import org.apache.http.NameValuePair;
+import org.apache.http.client.ClientProtocolException;
+import org.apache.http.client.HttpClient;
+import org.apache.http.client.entity.UrlEncodedFormEntity;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.client.methods.HttpPost;
+import org.apache.http.impl.client.HttpClientBuilder;
+import org.apache.http.message.BasicNameValuePair;
 import org.json.JSONObject;
 import sun.misc.BASE64Decoder;
 
@@ -16,6 +25,12 @@ import java.awt.image.BufferedImage;
 import java.io.*;
 import java.nio.file.Files;
 import java.util.*;
+import java.util.List;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.util.ArrayList;
+
 
 /**
  * Created by khushbu on 31/5/16.
@@ -79,6 +94,10 @@ public class ImageClass {
         return  hmap;
     }
 
+    static String LastStoredname="";
+
+    static int Server_id=0;
+
     @POST
     @Path("AddToTrainingSet")
     @Produces("application/json")
@@ -89,51 +108,57 @@ public class ImageClass {
         System.out.println("\nAdding to Taining Set");
 
 
-        HashMap<Integer,String> hm=new HashMap<Integer,String>();
+        if(!LastStoredname.equals(name))
+        {
+            if(Server_id==4)
+            {
+                Server_id=0;
+            }
+                Server_id++;
+        }
+        LastStoredname=name;
 
         try {
-            BASE64Decoder decoder = new BASE64Decoder();
-            byte[] decodedBytes = decoder.decodeBuffer(s);
 
-            obj.put("status", "Success");
+            HttpClient httpClient = HttpClientBuilder.create().build();
 
+            HttpPost postRequest = new HttpPost("https://khush-server-"+Server_id+".herokuapp.com/api/imageclass/AddToTrainingSet");
+            ArrayList<NameValuePair> postParameters;
+            postParameters = new ArrayList<NameValuePair>();
+            postParameters.add(new BasicNameValuePair("Image", s));
+            postParameters.add(new BasicNameValuePair("name", name));
 
-            BufferedImage img = ImageIO.read(new ByteArrayInputStream(decodedBytes));
-            String ranValue = String.valueOf(gen());
+            postRequest.setEntity(new UrlEncodedFormEntity(postParameters));
 
-            File f=new File("TrainingSet");
+            HttpResponse response = httpClient.execute(postRequest);
 
-            if(!f.exists())
-            {
-                f.mkdir();
+            if (response.getStatusLine().getStatusCode() != 200) {
+                throw new RuntimeException("Failed : HTTP error code : " + response.getStatusLine().getStatusCode());
             }
 
-
-            ConvertAndSaveToPgm("TrainingSet/image_"+ranValue+".pgm","image_"+ranValue+".txt",img);
-
-            Map<String,String> HashMap=getHashMap();
-
-            if(HashMap==null)
-            {
-                HashMap= new HashMap<String, String>();
-            }
-
-            String s1="image_"+ranValue+".pgm";
-            HashMap.put(s1,name);
-            System.out.println("\nimage_" + ranValue + ".pgm Saved");
-
-            storeHashMap(HashMap);
+            BufferedReader br = new BufferedReader(new InputStreamReader((response.getEntity().getContent())));
+            String output;
 
 
-            return  String.valueOf(obj);
-        }catch(Exception e)
-        {
+        } catch (ClientProtocolException e) {
+            e.printStackTrace();
+
+        } catch (IOException e) {
             e.printStackTrace();
         }
 
-        obj.put("status", "failure");
+
+
+        obj.put("status", "success");
         return  String.valueOf(obj);
     }
+
+    static int count=0;
+
+    static Double Percentage[];
+
+    static String Name[];
+
 
     @POST
     @Path("RecogniseImage")
@@ -141,162 +166,62 @@ public class ImageClass {
     public String RecogniseImage(@FormParam("Image")String s)
     {
 
+        System.out.println("Got Image");
         JSONObject obj= new JSONObject();
 
-        System.out.println("\nRecognizing Image");
-        try {
-            BASE64Decoder decoder = new BASE64Decoder();
-            byte[] decodedBytes = decoder.decodeBuffer(s);
+        Percentage=new Double[4];
+        Name=new String[4];
+
+        Thread t1=new ReconThread(1,s);
+        t1.start();
+
+        Thread t2=new ReconThread(2,s);
+        t2.start();
+
+        Thread t3=new ReconThread(3,s);
+        t3.start();
+
+        Thread t4=new ReconThread(4,s);
+        t4.start();
 
 
 
-            BufferedImage img = ImageIO.read(new ByteArrayInputStream(decodedBytes));
-            String ranValue=String.valueOf(gen());
-
-            File f=new File("Recognize");
-
-            if(!f.exists())
+        while(true)
+        {
+            if(count>3)
             {
-                f.mkdir();
+                break;
             }
+            System.out.print(" Count is "+count);
+        }
 
-            try {
-                FileUtils.cleanDirectory(new File("Recognize"));
-            }catch (Exception e)
+        System.out.print("\n\nname is "+Name[0]);
+        System.out.print("\n\npercentage is "+Percentage[0]);
+        System.out.print("\n\nname is "+Name[1]);
+        System.out.print("\n\npercentage is "+Percentage[1]);
+        System.out.print("\n\nname is "+Name[2]);
+        System.out.print("\n\npercentage is "+Percentage[2]);
+        System.out.print("\n\nname is "+Name[3]);
+        System.out.print("\n\npercentage is "+Percentage[3]);
+
+        int max=0;
+        for(int i=0;i<4;i++)
+        {
+            if(Percentage[i]>Percentage[max])
             {
-                e.printStackTrace();
+                max=i;
             }
+        }
+        System.out.print("\n\nname is "+Name[max]);
+        System.out.print("\n\nmax percentage is "+Percentage[max]);
 
-            ConvertAndSaveToPgm("Recognize/image_" + ranValue + ".pgm","image_" + ranValue + ".txt",img);
-
-            System.out.println("\nimage_" + ranValue + ".pgm Saved");
-
-            int Number_of_Files=new File("TrainingSet").list().length;
-
-
-
-
-
-
-            ImageRecognizer recognizer = new ImageRecognizer();
-            recognizer.setTrainingSetPath("TrainingSet");
-            recognizer.buildUp();
-
-            InputStreamReader isr = new InputStreamReader(System.in);
-            BufferedReader br = new BufferedReader(isr);
-
-
-
-            ImageRecognizer recognizer1 = new ImageRecognizer();
-
-
-
-            String imageName="Recognize/image_"+ranValue+".pgm";
-            Matrix m2=recognizer1.buildUp1(imageName);
-            String imname=recognizer.findMostSimilarImages(imageName,Number_of_Files,m2);
-
-            Map<String,String> HashMap=getHashMap();
-
-
-            obj.put("status", "Success");
-            obj.put("name", HashMap.get(imname));
-            return  String.valueOf(obj);
-        }catch(Exception e)
-            {
-                e.printStackTrace();
-            }
-
-        obj.put("status", "failure");
+        obj.put("status", "success");
+        obj.put("name", Name[max]);
         return  String.valueOf(obj);
     }
 
 
-    public void ConvertAndSaveToPgm(String fileName,String shortname,BufferedImage img) throws IOException {
 
-
-        int width = img.getWidth();
-        int height = img.getHeight();
-        int alpha, red, green, blue;
-        //convert to grayscale
-
-        data = new short[height][width];
-        short maxGrayValue = 0;
-        for (int y = 0; y < height; y++) {
-            for (int x = 0; x < width; x++) {
-                int p = img.getRGB(x, y);
-
-                int a = (p >> 24) & 0xff;
-                int r = (p >> 16) & 0xff;
-                int g = (p >> 8) & 0xff;
-                int b = p & 0xff;
-
-                //calculate average
-                int avg = (r + g + b) / 3;
-
-                //replace RGB value with avg
-                p = (a << 24) | (avg << 16) | (avg << 8) | avg;
-
-
-                alpha = new Color(img.getRGB(x, y)).getAlpha();
-                red = new Color(img.getRGB(x, y)).getRed();
-                green = new Color(img.getRGB(x, y)).getGreen();
-                blue = new Color(img.getRGB(x, y)).getBlue();
-
-
-                img.setRGB(x, y, p);
-                short gray = (short) (0.299 * red + 0.587 * green + 0.114 * blue);
-                if (gray > maxGrayValue) {
-                    maxGrayValue = gray;
-                }
-                data[y][x] = gray;
-
-            }
-        }
-        File f=new File("ImageTexts");
-
-        if(!f.exists())
-        {
-            f.mkdir();
-        }
-
-
-        PrintWriter out = new PrintWriter(new File("ImageTexts/"+shortname));
-
-        for(int i = 0; i<height; i++)
-        {
-            System.out.println();
-            out.println();
-            for (int j = 0; j<width; j++)
-            {
-                out.print(data[i][j]+" ");
-            }
-        }
-
-        out.close();
-
-
-
-        File file = new File(fileName);
-        if (!file.exists()) {
-            file.createNewFile();
-        }
-
-        FileWriter writer = new FileWriter(file);
-
-        writer.append("P2\n");
-        writer.append("" + width + " " + height + "\n");
-        writer.append("" + maxGrayValue + "\n");
-
-        for (int y = 0; y < data.length; y++) {
-            short[] currentLine = data[y];
-            for (int x = 0; x < currentLine.length; x++) {
-                short value = currentLine[x];
-                writer.append("" + value + " ");
-            }
-            writer.append("\n");
-        }
-        writer.close();
-    }
 
 
 
